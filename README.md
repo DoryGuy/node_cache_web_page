@@ -15,4 +15,16 @@ I have a 60 second ttl for the cache for testing, makes it easier if things just
     // to run in your browser.
     http://localhost:8080/webpath
 
+    // to run the del from the cache node
+    node del_main.js
+
+    // to run the del from the browser
+    http://localhost:8081/webpath
+
+
+    TODO
+    Use Promises instead of callbacks.
+    Use a config file, probably .yml format for the the time to live variable.
+       make the config file reloaded periodically, or on change.
+
  

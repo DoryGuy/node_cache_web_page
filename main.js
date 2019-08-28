@@ -3,7 +3,7 @@ var redis = require('redis');
 var http = require('http');
 var request = require('request');
 
-var time_to_live = 60 // seconds
+var time_to_live = 60; // seconds
 
 // return "store": 1 if we can store it, zero otherwise.
 //        "time_to_live": NNN   or our default if not there.
@@ -11,22 +11,38 @@ var time_to_live = 60 // seconds
 function is_cacheable(headers) {
     var store = 1; /// default to storing
     var ttl = time_to_live;
-    var cache_control = headers['cache-control'];
+    var cache_control;
 
-    if (!cache_control) { return {'store': store, 'time_to_live': ttl}; }
-    console.log("MONKEYS" + cache_control);
+    // look for 'cache-control' in all variations of capitialization.
+    for (var key in headers) {
+      if (headers.hasOwnProperty(key)) {
+	  console.log(key + " -> " + headers[key]);
+          var lower_case_key = key;
+	  lower_case_key.toLowerCase();
+          if ('cache-control' == lower_case_key) {
+              cache_control = headers[key];
+              break;
+          }
+      }
+    }
+
+    if (!cache_control) { console.log("no cache-control"); return {'store': store, 'time_to_live': ttl}; }
+
+    console.log("CACHE CONTROL = " + cache_control);
     var arr_headers = cache_control.split(',');
     var len = arr_headers.length;
     for (var i = 0; i < len; ++i) {
-        if ('no-store' == arr_headers[i]) {
+        var header = arr_headers[i].toLowerCase();
+        if ('no-store' == header || 'no-cache' == header) {
             store = 0;
-        } else if (arr_headers[i].length > 6 && 'max-age' == arr_headers[i].substr(0,7)) {
-            var args = arr_headers[i];
+        } else if (header.length > 6 && 'max-age' == header.substr(0,7)) {
+            var args = header;
             console.log("ARGS " + args)
             var args_age = args.split('=');
             console.log("MAX AGE ")
+            // make sure it's of the form max-age=NNN
             if (args_age.length = 2) {
-	      console.log(args_age[1]);
+	      console.log("max-age = " + args_age[1]);
                 ttl = args_age[1];
                 if (ttl == 0) {
                     store = 0;
@@ -67,9 +83,10 @@ http.createServer(function (req, res) {
 
     //console.log('GET result ->' + result);
     if (result) {
-	console.log('URL result found in cache');
-	//res.writeHead(200, {'Content-Type': 'text/html'});
-	res.write(result); //write a response to the client
+	console.log('URL ' + url + ' result found in cache');
+        var web_page = JSON.parse(result);
+	res.writeHead(200, web_page.headers);
+	res.write(web_page.body); //write a response to the client
         res.end(); // end the response
         previous_successful_url = url;
         failure_count = 0;
@@ -88,16 +105,21 @@ http.createServer(function (req, res) {
                     if (!body) {
                         console.log('nothing here');
                     } else {
-		      res.writeHead(200, {'Content-Type': 'text/html'});
+                      if (result.headers) {
+			res.writeHead(200, result.headers);
+                      }
 		      res.write(body);
-		      client.set(url, body, 'EX', time_to_live);
+		      var cache_results = is_cacheable(result.headers);
+		      if (cache_results.store) {
+			client.set(url, JSON.stringify({'headers': result.headers, 'body':body}) , 'EX', cache_results.time_to_live);
+                      }
                     }
 		    res.end();
                   }
 		});
               }
           }  else {
-	    res.writeHead(200, {'Content-Type': 'text/html'});
+	    res.writeHead(200, result.headers);
 	    res.write(body); //write a response to the client
 	    res.end(); // end the response
    
@@ -105,7 +127,8 @@ http.createServer(function (req, res) {
             var cache_results = is_cacheable(result.headers);
             console.log(JSON.stringify(cache_results));
             if (cache_results.store) {
-	      client.set(url, body, 'EX', cache_results.time_to_live);
+	      client.set(url, JSON.stringify({'headers': result.headers, 'body':body}) , 'EX', cache_results.time_to_live);
+              console.log("Saved " + url + " to cache.");
 	      previous_successful_url = url;
 	      failure_count = 0;
             }
